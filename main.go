@@ -61,6 +61,13 @@ func main() {
 		})
 	})
 
+	Router.Use(func(handler http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			req.Header.Del("Authorization")
+			handler.ServeHTTP(w, req)
+		})
+	})
+
 	Router.Use(middleware.RealIP)
 	Router.Use(middleware.Logger)
 	Router.Use(middleware.Recoverer)
@@ -93,8 +100,8 @@ func main() {
 		Handler: utils.FileServer(http.Dir(filepath.Join(config.Root, "public"))),
 	}))
 	Application.Use(static.New(&static.Config{
-		Prefixs: []string{"javascripts", "stylesheets", "images", "dist", "fonts", "vendors"},
-		Handler: bindatafs.AssetFS.FileServer(http.Dir("public"), "javascripts", "stylesheets", "images", "dist", "fonts", "vendors"),
+		Prefixs: []string{"javascripts", "stylesheets", "images", "dist", "fonts", "vendors", "favicon.ico"},
+		Handler: bindatafs.AssetFS.FileServer(http.Dir("public"), "javascripts", "stylesheets", "images", "dist", "fonts", "vendors", "favicon.ico"),
 	}))
 
 	if *compileTemplate {

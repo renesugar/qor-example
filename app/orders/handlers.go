@@ -1,9 +1,13 @@
 package orders
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/schema"
+	amazonpay "github.com/qor/amazon-pay-sdk-go"
+	"github.com/qor/gomerchant"
 	"github.com/qor/qor-example/config"
 	"github.com/qor/qor-example/models/orders"
 	"github.com/qor/qor-example/utils"
@@ -27,8 +31,9 @@ func (ctrl Controller) Cart(w http.ResponseWriter, req *http.Request) {
 
 // Checkout checkout shopping cart
 func (ctrl Controller) Checkout(w http.ResponseWriter, req *http.Request) {
+	hasAmazon := req.URL.Query().Get("access_token")
 	order := getCurrentOrderWithItems(w, req)
-	ctrl.View.Execute("checkout", map[string]interface{}{"Order": order}, req, w)
+	ctrl.View.Execute("checkout", map[string]interface{}{"Order": order, "HasAmazon": hasAmazon}, req, w)
 }
 
 // Complete complete shopping cart
@@ -51,6 +56,39 @@ func (ctrl Controller) Complete(w http.ResponseWriter, req *http.Request) {
 		utils.AddFlashMessage(w, req, "Order Reference ID not Found", "error")
 	}
 
+	http.Redirect(w, req, "/cart", http.StatusFound)
+}
+
+// CompleteCreditCard complete shopping cart with credit card
+func (ctrl Controller) CompleteCreditCard(w http.ResponseWriter, req *http.Request) {
+	req.ParseForm()
+
+	order := getCurrentOrder(w, req)
+
+	expMonth, _ := strconv.Atoi(req.Form.Get("exp_month"))
+	expYear, _ := strconv.Atoi(req.Form.Get("exp_year"))
+
+	creditCard := gomerchant.CreditCard{
+		Name:     req.Form.Get("name"),
+		Number:   req.Form.Get("creditcard"),
+		CVC:      req.Form.Get("cvv"),
+		ExpYear:  uint(expYear),
+		ExpMonth: uint(expMonth),
+	}
+
+	if creditCard.ValidNumber() {
+		// TODO integrate with https://github.com/qor/gomerchant to handle those information
+		tx := utils.GetDB(req)
+		err := orders.OrderState.Trigger("checkout", order, tx, "")
+
+		if err == nil {
+			tx.Save(order)
+			http.Redirect(w, req, "/cart/success", http.StatusFound)
+			return
+		}
+	}
+
+	utils.AddFlashMessage(w, req, "Invalid Credit Card", "error")
 	http.Redirect(w, req, "/cart", http.StatusFound)
 }
 
@@ -92,6 +130,13 @@ func (ctrl Controller) UpdateCart(w http.ResponseWriter, req *http.Request) {
 	}).With([]string{"json", "xml"}, func() {
 		config.Render.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	}).Respond(req)
+}
+
+// AmazonCallback amazon callback
+func (ctrl Controller) AmazonCallback(w http.ResponseWriter, req *http.Request) {
+	ipn, ok := amazonpay.VerifyIPNRequest(req)
+	fmt.Printf("%#v\n", ipn)
+	fmt.Printf("%#v\n", ok)
 }
 
 func getCurrentOrder(w http.ResponseWriter, req *http.Request) *orders.Order {
